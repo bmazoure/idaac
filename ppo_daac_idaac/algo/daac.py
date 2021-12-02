@@ -4,6 +4,30 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+def compute_distance(A):
+    similarity = (A.T @ A)
+    # squared magnitude of preference vectors (number of occurrences)
+    square_mag = torch.diag(similarity)
+
+    # inverse squared magnitude
+    inv_square_mag = 1 / square_mag
+
+    # if it doesn't occur, set it's inverse magnitude to zero (instead of inf)
+    # inv_square_mag[jnp.isinf(inv_square_mag)] = 0
+
+    # inverse of the magnitude
+    inv_mag = torch.sqrt(inv_square_mag)
+
+    # cosine similarity (elementwise multiply by inverse magnitudes)
+    cosine = similarity * inv_mag
+    return cosine.T * inv_mag
+
+def cos_loss(p, z):
+    p = F.normalize(p, dim=1, p=2)
+    z = F.normalize(z, dim=1, p=2)
+    dist = 2 - 2 * (p * z.detach()).sum(dim=1)
+    return dist
+
 class DAAC():
     """
     DAAC
@@ -19,11 +43,12 @@ class DAAC():
                  value_loss_coef,
                  adv_loss_coef,
                  entropy_coef,
+                 myow_k,
                  lr=None,
                  lr_ctrl=None,
                  eps=None,
                  max_grad_norm=None):
-
+        self.myow_k = myow_k
         self.actor_critic = actor_critic
         self.ctrl = ctrl
 
@@ -87,7 +112,30 @@ class DAAC():
                         q_target = self.ctrl.sinkhorn(scores_w_target)
                     proto_loss = -(q_target * log_p).sum(axis=1).mean()
 
-                    ctrl_loss = proto_loss # + myow # todo
+                    # MYOW
+                    dist = compute_distance(self.ctrl.protos.weight.data.clone().T)
+                    vals, indx = torch.topk(-dist, self.myow_k + 1)
+                    cluster_idx = torch.argmax(q_target, 1)
+                    
+                    w_pred_target = w_pred
+                    cluster_membership_list = []
+                    for c in range(self.ctrl.num_protos):
+                        idxes = torch.where(cluster_idx==c)[0]
+                        if len(idxes) < self.myow_k:
+                            cluster_membership_list.append(torch.randint(0,cluster_idx.shape[0],(self.myow_k,)))
+                        else:
+                            cluster_membership_list.append(idxes[:self.myow_k])
+                    cluster_membership_list = torch.stack(cluster_membership_list)
+                    myow_loss = 0.
+                    for k_idx in range(self.myow_k):
+                        nearby_cluster_idx = indx[:, k_idx+1][cluster_idx]
+                        idx = torch.randint(0,self.myow_k+1,(self.ctrl.num_protos, 1))
+                        
+                        nearby_vec_idx = torch.gather(torch.gather(cluster_membership_list,0,idx),0,nearby_cluster_idx.unsqueeze(1))
+                        nearby_vec = w_pred_target[nearby_vec_idx][:,0]
+                        myow_loss += cos_loss(v_pred, nearby_vec).mean()
+
+                    ctrl_loss = proto_loss + myow_loss # todo
 
                     self.ctrl_optimizer.zero_grad()
                     ctrl_loss.backward()

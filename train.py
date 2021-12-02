@@ -124,6 +124,7 @@ def train(args):
             args.value_loss_coef,
             args.adv_loss_coef,
             args.entropy_coef,
+            myow_k=args.myow_k,
             lr=args.lr,
             lr_ctrl=args.lr_ctrl,
             eps=args.eps,
