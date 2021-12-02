@@ -169,3 +169,11 @@ parser.add_argument(
     type=int,
     default=0,
     help='start level id for sampling Procgen levels')
+
+# CTRL
+parser.add_argument("--temp", type=float, default=0.1, help="Clustering temperature")
+parser.add_argument("--k", type=int, default=3, help="Clustering sub-iterations")
+parser.add_argument("--cluster_len", type=int, default=2, help="Cluster length (timesteps)")
+parser.add_argument("--num_clusters", type=int, default=100, help="Number of prototypes")
+parser.add_argument("--tau_ema", type=float, default=0.98, help="EMA between RL and CTRL encoders")
+parser.add_argument("--lr_ctrl", type=float, default=1e-4, help="CTRL's learning rate")

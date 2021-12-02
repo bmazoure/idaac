@@ -392,3 +392,74 @@ class IDAACnet(nn.Module):
         dist_entropy = dist.entropy().mean()
 
         return actor_features, gae, value, action_log_probs, dist_entropy
+
+class MLP(nn.Module):
+    def __init__(self, dims):
+        super().__init__()
+        self.layers = []
+        for i in range(len(dims)-2):
+            self.layers.append(init_relu_(nn.Linear(dims[i], dims[i+1])))
+            self.layers.append(nn.ReLU())
+        self.layers.append(init_(nn.Linear(dims[-2],dims[-1])))
+        self.mlp = nn.Sequential(*self.layers)
+
+    def forward(self, x):
+        return self.mlp(x)
+
+class CTRL(nn.Module):
+    def __init__(self, dims, cluster_len, num_protos, k, temp):
+        super().__init__()
+
+        self.v_clust_mlp = MLP(dims)
+        self.w_clust_mlp = MLP(dims)
+        self.v_pred_mlp = MLP(dims)
+        self.w_pred_mlp = MLP(dims)
+        self.action_mlp = MLP([15]+dims[1:-1]+[2*dims[-1]])
+        self.concat_mlp = nn.Linear(dims[-1]*cluster_len, dims[-1])
+
+        self.num_iters = k
+        self.temp = temp
+        self.cluster_len = cluster_len
+        self.num_protos = num_protos
+
+        self.protos = nn.Linear(dims[-1], num_protos, bias=False)
+
+    def forward(self, z_state, actions, rewards):
+        batch_shape = z_state.shape[:2]
+
+        z_action = self.action_mlp(F.one_hot(actions.reshape(-1), 15).float())
+        gamma_a, beta_a = z_action.reshape(*batch_shape, -1).chunk(2, dim=-1)
+        
+        z = ((1 + gamma_a) * z_state + beta_a).permute(1,0,2).reshape(z_state.shape[1], -1)
+        z = self.concat_mlp(z)
+
+        v_clust = self.v_clust_mlp(z)
+        w_clust = v_clust # self.w_clust_mlp(v_clust)
+
+        v_pred = self.v_pred_mlp(z)
+        w_pred = self.w_pred_mlp(v_pred)
+
+        return v_clust, w_clust, v_pred, w_pred
+
+    def sinkhorn(self, scores):
+        def remove_infs(x):
+            m = x[torch.isfinite(x)].max().item()
+            x[torch.isinf(x)] = m
+            return x
+
+        Q = scores / self.temp
+        Q -= Q.max()
+
+        Q = torch.exp(Q).T
+        Q = remove_infs(Q)
+        Q /= Q.sum()
+
+        r = torch.ones(Q.shape[0], device=Q.device) / Q.shape[0]
+        c = torch.ones(Q.shape[1], device=Q.device) / Q.shape[1]
+        for it in range(self.num_iters):
+            u = Q.sum(dim=1)
+            u = remove_infs(r / u)
+            Q *= u.unsqueeze(dim=1)
+            Q *= (c / Q.sum(dim=0)).unsqueeze(dim=0)
+        Q = Q / Q.sum(dim=0, keepdim=True)
+        return Q.T

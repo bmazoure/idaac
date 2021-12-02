@@ -17,13 +17,14 @@ from baselines.common.vec_env import (
 from ppo_daac_idaac import algo, utils
 from ppo_daac_idaac.arguments import parser
 from ppo_daac_idaac.model import PPOnet, IDAACnet, \
-    LinearOrderClassifier, NonlinearOrderClassifier
+    LinearOrderClassifier, NonlinearOrderClassifier, CTRL
 from ppo_daac_idaac.storage import DAACRolloutStorage, \
     IDAACRolloutStorage, RolloutStorage
 from ppo_daac_idaac.envs import VecPyTorchProcgen
 
 
 def train(args):
+    # torch.autograd.set_detect_anomaly(True)
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     if args.use_best_hps:
         args.value_epoch = hps.value_epoch[args.env_name]
@@ -68,8 +69,10 @@ def train(args):
         actor_critic = IDAACnet(
             obs_shape,
             envs.action_space.n,
-            base_kwargs={'hidden_size': args.hidden_size})    
+            base_kwargs={'hidden_size': args.hidden_size})
+    ctrl = CTRL(dims=[256,256,256], cluster_len=args.cluster_len, num_protos=args.num_clusters, k=args.k, temp=args.temp)
     actor_critic.to(device)
+    ctrl.to(device)
     print("\n Actor-Critic Network: ", actor_critic)
     
     if args.algo == 'idaac':
@@ -86,7 +89,7 @@ def train(args):
                                 envs.observation_space.shape, envs.action_space)
     elif args.algo == 'daac':
         rollouts = DAACRolloutStorage(args.num_steps, args.num_processes,
-                                envs.observation_space.shape, envs.action_space)
+                                envs.observation_space.shape, envs.action_space, args.cluster_len)
     else:
         rollouts = RolloutStorage(args.num_steps, args.num_processes,
                                 envs.observation_space.shape, envs.action_space)
@@ -112,6 +115,7 @@ def train(args):
     elif args.algo == 'daac':
         agent = algo.DAAC(
             actor_critic,
+            ctrl,
             args.clip_param,
             args.ppo_epoch,
             args.value_epoch, 
@@ -121,6 +125,7 @@ def train(args):
             args.adv_loss_coef,
             args.entropy_coef,
             lr=args.lr,
+            lr_ctrl=args.lr_ctrl,
             eps=args.eps,
             max_grad_norm=args.max_grad_norm)
     else: 

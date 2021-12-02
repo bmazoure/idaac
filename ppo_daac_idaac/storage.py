@@ -99,9 +99,16 @@ class RolloutStorage(object):
             yield obs_batch, actions_batch, value_preds_batch, \
                 return_batch, old_action_log_probs_batch, adv_targ
 
+def rolling_window(x, w):
+    max_timestep = x.shape[0] - w - 1
+    sub_windows = (0 + torch.unsqueeze(torch.range(0, w-1), 0) +
+                   torch.unsqueeze(torch.range(0, max_timestep), 0).T).long()
+
+    return x[sub_windows]
 
 class DAACRolloutStorage(RolloutStorage):
-    def __init__(self, num_steps, num_processes, obs_shape, action_space):
+    def __init__(self, num_steps, num_processes, obs_shape, action_space, cluster_len):
+        self.cluster_len = cluster_len
         self.obs = torch.zeros(num_steps + 1, num_processes, *obs_shape)
         self.rewards = torch.zeros(num_steps, num_processes, 1)
         self.value_preds = torch.zeros(num_steps + 1, num_processes, 1)
@@ -176,9 +183,13 @@ class DAACRolloutStorage(RolloutStorage):
                 adv_targ = None
             else:
                 adv_targ = advantages.view(-1, 1)[indices]
+            
+            obs_seq = rolling_window(self.obs[:-1], self.cluster_len).permute(1,0,2,3,4,5).reshape(self.cluster_len ,-1, *self.obs.size()[2:])
+            actions_seq = rolling_window(self.actions, self.cluster_len).permute(1,0,2,3).reshape(self.cluster_len ,-1, self.actions.size(-1))
+            returns_seq = rolling_window(self.returns, self.cluster_len).permute(1,0,2,3).reshape(self.cluster_len ,-1, self.returns.size(-1))
 
             yield obs_batch, actions_batch, value_preds_batch, return_batch, \
-                old_action_log_probs_batch, adv_targ, adv_preds_batch
+                old_action_log_probs_batch, adv_targ, adv_preds_batch, obs_seq, actions_seq, returns_seq
 
 
 class IDAACRolloutStorage(RolloutStorage):
