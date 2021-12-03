@@ -164,6 +164,7 @@ def train(args):
     num_updates = int(
         args.num_env_steps) // args.num_steps // args.num_processes
 
+    returns_ood_acc = []
     nsteps = torch.zeros(args.num_processes)
     for j in range(num_updates):
         actor_critic.train()
@@ -259,6 +260,16 @@ def train(args):
             wandb.log({
                 "%s/ep_return_all" % (args.env_name):np.mean(eval_episode_rewards)
             },step=total_num_steps)
+
+            wandb.log({
+                "%s/adv_loss" % (args.env_name):adv_loss,
+                "%s/action_loss" % (args.env_name):action_loss,
+                "%s/value_loss" % (args.env_name):value_loss,
+                "%s/dist_entropy" % (args.env_name):dist_entropy,
+                "%s/ctrl_loss" % (args.env_name):ctrl_loss,
+            },step=total_num_steps)
+
+            returns_ood_acc.append(np.mean(eval_episode_rewards))
 
 if __name__ == "__main__":
     args = parser.parse_args()

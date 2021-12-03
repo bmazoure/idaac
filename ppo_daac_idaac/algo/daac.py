@@ -90,6 +90,7 @@ class DAAC():
 
         # CTRL
         if self.ctrl is not None:
+            ctrl_loss_epoch = 0
             for e in range(self.ppo_epoch):
                     data_generator = rollouts.feed_forward_generator(
                         advantages, 32)
@@ -140,15 +141,17 @@ class DAAC():
                             nearby_vec = w_pred_target[nearby_vec_idx][:,0]
                             myow_loss += cos_loss(v_pred, nearby_vec).mean()
 
-                        ctrl_loss = proto_loss + myow_loss # todo
+                        ctrl_loss = proto_loss + myow_loss
 
                         self.ctrl_optimizer.zero_grad()
                         ctrl_loss.backward()
                         nn.utils.clip_grad_norm_(self.ctrl_parameters, \
                                                 self.max_grad_norm)
                         self.ctrl_optimizer.step()  
+                        ctrl_loss_epoch += ctrl_loss.item()
+            ctrl_loss_epoch /= (self.ppo_epoch * self.num_mini_batch)
         else:
-            ctrl_loss = 0.
+            ctrl_loss_epoch = 0.
         # Update the Policy Network
         adv_loss_epoch = 0
         action_loss_epoch = 0
@@ -235,4 +238,4 @@ class DAAC():
         self.num_policy_updates += 1
 
         return adv_loss_epoch, value_loss_epoch, \
-            action_loss_epoch, dist_entropy_epoch, ctrl_loss
+            action_loss_epoch, dist_entropy_epoch, ctrl_loss_epoch
