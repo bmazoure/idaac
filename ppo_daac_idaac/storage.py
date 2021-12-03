@@ -155,6 +155,7 @@ class DAACRolloutStorage(RolloutStorage):
                                mini_batch_size=None):
         num_steps, num_processes = self.rewards.size()[0:2]
         batch_size = num_processes * num_steps
+        batch_size_seq = num_processes * (num_steps-self.cluster_len)
 
         if mini_batch_size is None:
             assert batch_size >= num_mini_batch, (
@@ -166,10 +167,9 @@ class DAACRolloutStorage(RolloutStorage):
             mini_batch_size = batch_size // num_mini_batch
 
         sampler = BatchSampler(
-            SubsetRandomSampler(range(batch_size)),
+            SubsetRandomSampler(range(batch_size_seq)),
             mini_batch_size,
             drop_last=True)
-     
         for indices in sampler:
             obs_batch = self.obs[:-1].view(-1, *self.obs.size()[2:])[indices]
             actions_batch = self.actions.view(-1,
@@ -184,9 +184,9 @@ class DAACRolloutStorage(RolloutStorage):
             else:
                 adv_targ = advantages.view(-1, 1)[indices]
             
-            obs_seq = rolling_window(self.obs[:-1], self.cluster_len).permute(1,0,2,3,4,5).reshape(self.cluster_len ,-1, *self.obs.size()[2:])
-            actions_seq = rolling_window(self.actions, self.cluster_len).permute(1,0,2,3).reshape(self.cluster_len ,-1, self.actions.size(-1))
-            returns_seq = rolling_window(self.returns, self.cluster_len).permute(1,0,2,3).reshape(self.cluster_len ,-1, self.returns.size(-1))
+            obs_seq = rolling_window(self.obs[:-1], self.cluster_len).permute(1,0,2,3,4,5).reshape(self.cluster_len ,-1, *self.obs.size()[2:])[:,indices]
+            actions_seq = rolling_window(self.actions, self.cluster_len).permute(1,0,2,3).reshape(self.cluster_len ,-1, self.actions.size(-1))[:,indices]
+            returns_seq = rolling_window(self.returns, self.cluster_len).permute(1,0,2,3).reshape(self.cluster_len ,-1, self.returns.size(-1))[:,indices]
 
             yield obs_batch, actions_batch, value_preds_batch, return_batch, \
                 old_action_log_probs_batch, adv_targ, adv_preds_batch, obs_seq, actions_seq, returns_seq

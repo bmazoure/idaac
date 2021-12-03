@@ -4,6 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 def compute_distance(A):
     similarity = (A.T @ A)
     # squared magnitude of preference vectors (number of occurrences)
@@ -68,14 +70,16 @@ class DAAC():
         self.policy_parameters = list(actor_critic.base.parameters()) + \
             list(actor_critic.dist.parameters())
         self.value_parameters = list(actor_critic.value_net.parameters())
-        self.ctrl_parameters = list(ctrl.parameters())+list(actor_critic.parameters())
+        if ctrl is not None:
+            self.ctrl_parameters = list(ctrl.parameters())+list(actor_critic.parameters())
         
         self.policy_optimizer = optim.Adam(\
             self.policy_parameters, lr=lr, eps=eps)
         self.value_optimizer = optim.Adam(\
             self.value_parameters, lr=lr, eps=eps)
-        self.ctrl_optimizer = optim.Adam(\
-            self.ctrl_parameters, lr=lr_ctrl, eps=eps)
+        if ctrl is not None:
+            self.ctrl_optimizer = optim.Adam(\
+                self.ctrl_parameters, lr=lr_ctrl, eps=eps)
 
         self.num_policy_updates = 0
 
@@ -85,64 +89,66 @@ class DAAC():
             advantages.std() + 1e-5)
 
         # CTRL
-        for e in range(self.ppo_epoch):
-                data_generator = rollouts.feed_forward_generator(
-                    advantages, self.num_mini_batch)
+        if self.ctrl is not None:
+            for e in range(self.ppo_epoch):
+                    data_generator = rollouts.feed_forward_generator(
+                        advantages, 32)
 
-                for sample in data_generator:
-                    obs_batch, actions_batch, value_preds_batch, return_batch, \
-                        old_action_log_probs_batch, adv_targ, adv_preds_batch,  obs_seq, actions_seq, returns_seq = \
-                        sample
-                    # z: cluster_len x ((n_timesteps-cluster_len) * n_processes) x n_rkhs
-                    z_seq = self.actor_critic.base(obs_seq.reshape(-1,*obs_batch.size()[1:]))[1].reshape(*obs_seq.size()[:2], -1)
-                    v_clust, w_clust, v_pred, w_pred = self.ctrl(z_seq, actions_seq, returns_seq)
-                    C = self.ctrl.protos.weight.data.clone()
-                    C = F.normalize(C, dim=1, p=2)
-                    self.ctrl.protos.weight.data.copy_(C)
+                    for sample in data_generator:
+                        obs_batch, actions_batch, value_preds_batch, return_batch, \
+                            old_action_log_probs_batch, adv_targ, adv_preds_batch,  obs_seq, actions_seq, returns_seq = \
+                            sample
+                        # z: cluster_len x ((n_timesteps-cluster_len) * n_processes) x n_rkhs
+                        z_seq = self.actor_critic.base(obs_seq.reshape(-1,*obs_batch.size()[1:]))[1].reshape(*obs_seq.size()[:2], -1)
+                        v_clust, w_clust, v_pred, w_pred = self.ctrl(z_seq, actions_seq, returns_seq)
+                        C = self.ctrl.protos.weight.data.clone()
+                        C = F.normalize(C, dim=1, p=2)
+                        self.ctrl.protos.weight.data.copy_(C)
 
-                    v_clust = F.normalize(v_clust, dim=1, p=2)
-                    w_clust = F.normalize(v_clust, dim=1, p=2)
+                        v_clust = F.normalize(v_clust, dim=1, p=2)
+                        w_clust = F.normalize(v_clust, dim=1, p=2)
 
-                    scores_v = self.ctrl.protos(v_clust)
-                    log_p = F.log_softmax(scores_v / self.ctrl.temp, dim=1)
+                        scores_v = self.ctrl.protos(v_clust)
+                        log_p = F.log_softmax(scores_v / self.ctrl.temp, dim=1)
 
-                    scores_v_target = self.ctrl.protos(v_clust)
-                    scores_w_target = self.ctrl.protos(w_clust)
-                    with torch.no_grad():
-                        q_target = self.ctrl.sinkhorn(scores_w_target)
-                    proto_loss = -(q_target * log_p).sum(axis=1).mean()
+                        scores_v_target = self.ctrl.protos(v_clust)
+                        scores_w_target = self.ctrl.protos(w_clust)
+                        with torch.no_grad():
+                            q_target = self.ctrl.sinkhorn(scores_w_target)
+                        proto_loss = -(q_target * log_p).sum(axis=1).mean()
 
-                    # MYOW
-                    dist = compute_distance(self.ctrl.protos.weight.data.clone().T)
-                    vals, indx = torch.topk(-dist, self.myow_k + 1)
-                    cluster_idx = torch.argmax(q_target, 1)
-                    
-                    w_pred_target = w_pred
-                    cluster_membership_list = []
-                    for c in range(self.ctrl.num_protos):
-                        idxes = torch.where(cluster_idx==c)[0]
-                        if len(idxes) < self.myow_k:
-                            cluster_membership_list.append(torch.randint(0,cluster_idx.shape[0],(self.myow_k,)))
-                        else:
-                            cluster_membership_list.append(idxes[:self.myow_k])
-                    cluster_membership_list = torch.stack(cluster_membership_list)
-                    myow_loss = 0.
-                    for k_idx in range(self.myow_k):
-                        nearby_cluster_idx = indx[:, k_idx+1][cluster_idx]
-                        idx = torch.randint(0,self.myow_k+1,(self.ctrl.num_protos, 1))
+                        # MYOW
+                        dist = compute_distance(self.ctrl.protos.weight.data.clone().T)
+                        vals, indx = torch.topk(-dist, self.myow_k + 1)
+                        cluster_idx = torch.argmax(q_target, 1)
                         
-                        nearby_vec_idx = torch.gather(torch.gather(cluster_membership_list,0,idx),0,nearby_cluster_idx.unsqueeze(1))
-                        nearby_vec = w_pred_target[nearby_vec_idx][:,0]
-                        myow_loss += cos_loss(v_pred, nearby_vec).mean()
+                        w_pred_target = w_pred
+                        cluster_membership_list = []
+                        for c in range(self.ctrl.num_protos):
+                            idxes = torch.where(cluster_idx==c)[0]
+                            if len(idxes) < self.myow_k:
+                                cluster_membership_list.append(torch.randint(0,cluster_idx.shape[0],(self.myow_k,)).to(device))
+                            else:
+                                cluster_membership_list.append(idxes[:self.myow_k])
+                        cluster_membership_list = torch.stack(cluster_membership_list)
+                        myow_loss = 0.
+                        for k_idx in range(self.myow_k):
+                            nearby_cluster_idx = indx[:, k_idx+1][cluster_idx]
+                            idx = torch.randint(0,self.myow_k+1,(self.ctrl.num_protos, 1)).to(device)
+                            
+                            nearby_vec_idx = torch.gather(torch.gather(cluster_membership_list,0,idx),0,nearby_cluster_idx.unsqueeze(1))
+                            nearby_vec = w_pred_target[nearby_vec_idx][:,0]
+                            myow_loss += cos_loss(v_pred, nearby_vec).mean()
 
-                    ctrl_loss = proto_loss + myow_loss # todo
+                        ctrl_loss = proto_loss + myow_loss # todo
 
-                    self.ctrl_optimizer.zero_grad()
-                    ctrl_loss.backward()
-                    nn.utils.clip_grad_norm_(self.ctrl_parameters, \
-                                             self.max_grad_norm)
-                    self.ctrl_optimizer.step()  
-
+                        self.ctrl_optimizer.zero_grad()
+                        ctrl_loss.backward()
+                        nn.utils.clip_grad_norm_(self.ctrl_parameters, \
+                                                self.max_grad_norm)
+                        self.ctrl_optimizer.step()  
+        else:
+            ctrl_loss = 0.
         # Update the Policy Network
         adv_loss_epoch = 0
         action_loss_epoch = 0
@@ -229,4 +235,4 @@ class DAAC():
         self.num_policy_updates += 1
 
         return adv_loss_epoch, value_loss_epoch, \
-            action_loss_epoch, dist_entropy_epoch
+            action_loss_epoch, dist_entropy_epoch, ctrl_loss

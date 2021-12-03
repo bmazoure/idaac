@@ -2,6 +2,7 @@ import os
 import torch
 import numpy as np
 from collections import deque
+import wandb
 
 import hyperparams as hps
 from test import evaluate
@@ -24,6 +25,18 @@ from ppo_daac_idaac.envs import VecPyTorchProcgen
 
 
 def train(args):
+    os.environ["WANDB_API_KEY"] = "02e3820b69de1b1fcc645edcfc3dd5c5079839a1"
+    group_name = "%s_%s_%s" % (args.algo, args.env_name, args.run_id)
+    name = "%s_%s_%s_%d" % (args.algo, args.env_name, args.run_id,
+                            np.random.randint(100000000))
+
+    wandb.init(project=args.wandb_project,
+               entity=args.wandb_entity,
+               config=args,
+               group=group_name,
+               name=name,
+               sync_tensorboard=False,
+               mode=args.wandb_mode)
     # torch.autograd.set_detect_anomaly(True)
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     if args.use_best_hps:
@@ -60,7 +73,7 @@ def train(args):
     envs = VecPyTorchProcgen(venv, device)
 
     obs_shape = envs.observation_space.shape     
-    if args.algo == 'ppo':
+    if 'ppo' in args.algo:
         actor_critic = PPOnet(
             obs_shape,
             envs.action_space.n,
@@ -70,12 +83,15 @@ def train(args):
             obs_shape,
             envs.action_space.n,
             base_kwargs={'hidden_size': args.hidden_size})
-    ctrl = CTRL(dims=[256,256,256], cluster_len=args.cluster_len, num_protos=args.num_clusters, k=args.k, temp=args.temp)
+    if 'ctrl' in args.algo:
+        ctrl = CTRL(dims=[256,256,256], cluster_len=args.cluster_len, num_protos=args.num_clusters, k=args.k, temp=args.temp)
+        ctrl.to(device)
+    else:
+        ctrl = None
     actor_critic.to(device)
-    ctrl.to(device)
     print("\n Actor-Critic Network: ", actor_critic)
     
-    if args.algo == 'idaac':
+    if 'idaac' in args.algo:
         if args.use_nonlinear_clf:
             order_classifier = NonlinearOrderClassifier(emb_size=args.hidden_size, \
                 hidden_size=args.clf_hidden_size).to(device)       
@@ -84,10 +100,10 @@ def train(args):
         order_classifier.to(device)
         print("\n Order Classifier: ", order_classifier)
 
-    if args.algo == 'idaac':
+    if 'idaac' in args.algo:
         rollouts = IDAACRolloutStorage(args.num_steps, args.num_processes,
                                 envs.observation_space.shape, envs.action_space)
-    elif args.algo == 'daac':
+    elif 'daac' in args.algo:
         rollouts = DAACRolloutStorage(args.num_steps, args.num_processes,
                                 envs.observation_space.shape, envs.action_space, args.cluster_len)
     else:
@@ -96,7 +112,7 @@ def train(args):
 
     batch_size = int(args.num_processes * args.num_steps / args.num_mini_batch)
 
-    if args.algo == 'idaac':
+    if 'idaac' in args.algo:
         agent = algo.IDAAC(
             actor_critic,
             order_classifier,
@@ -112,13 +128,13 @@ def train(args):
             lr=args.lr,
             eps=args.eps,
             max_grad_norm=args.max_grad_norm)
-    elif args.algo == 'daac':
+    elif 'daac' in args.algo:
         agent = algo.DAAC(
             actor_critic,
             ctrl,
             args.clip_param,
             args.ppo_epoch,
-            args.value_epoch, 
+            args.value_epoch,
             args.value_freq,
             args.num_mini_batch,
             args.value_loss_coef,
@@ -141,14 +157,13 @@ def train(args):
             eps=args.eps,
             max_grad_norm=args.max_grad_norm)
 
-
     obs = envs.reset()
     rollouts.obs[0].copy_(obs)
     rollouts.to(device)
 
     episode_rewards = deque(maxlen=10)
     num_updates = int(
-        args.num_env_steps) // args.num_steps // args.num_processes 
+        args.num_env_steps) // args.num_steps // args.num_processes
 
     nsteps = torch.zeros(args.num_processes)
     for j in range(num_updates):
@@ -157,14 +172,14 @@ def train(args):
         for step in range(args.num_steps):
             # Sample actions
             with torch.no_grad():
-                if args.algo == 'ppo':
+                if 'ppo' in args.algo:
                     value, action, action_log_prob = actor_critic.act(rollouts.obs[step])
                 else:
                     adv, value, action, action_log_prob = actor_critic.act(rollouts.obs[step])
                                         
             obs, reward, done, infos = envs.step(action)
 
-            if args.algo == 'idaac':
+            if 'idaac' in args.algo:
                 levels = torch.LongTensor([info['level_seed'] for info in infos])
                 if j == 0 and step == 0:
                     rollouts.levels[0].copy_(levels)
@@ -179,10 +194,10 @@ def train(args):
 
             nsteps += 1 
             nsteps[done == True] = 0
-            if args.algo == 'idaac':
+            if 'idaac' in args.algo:
                 rollouts.insert(obs, action, action_log_prob, value, \
                                 reward, masks, adv, levels, nsteps)
-            elif args.algo == 'daac':
+            elif 'daac' in args.algo:
                 rollouts.insert(obs, action, action_log_prob, value, \
                                 reward, masks, adv)
             else:
@@ -194,12 +209,12 @@ def train(args):
         
         rollouts.compute_returns(next_value, args.gamma, args.gae_lambda)
 
-        if args.algo == 'idaac':
+        if 'idaac' in args.algo:
             rollouts.before_update()
             order_acc, order_loss, clf_loss, adv_loss, value_loss, \
                 action_loss, dist_entropy = agent.update(rollouts)    
-        elif args.algo == 'daac':
-            adv_loss, value_loss, action_loss, dist_entropy = agent.update(rollouts)    
+        elif 'daac' in args.algo:
+            adv_loss, value_loss, action_loss, dist_entropy, ctrl_loss = agent.update(rollouts)    
         else:
             value_loss, action_loss, dist_entropy = agent.update(rollouts)    
         rollouts.after_update()

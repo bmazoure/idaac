@@ -91,8 +91,7 @@ parser.add_argument(
     help='environment to train on')
 parser.add_argument(
     '--algo',
-    default='idaac',
-    choices=['idaac', 'daac', 'ppo'],
+    default='daac',
     help='algorithm to use')
 parser.add_argument(
     '--log_dir',
@@ -178,3 +177,11 @@ parser.add_argument("--cluster_len", type=int, default=2, help="Cluster length (
 parser.add_argument("--num_clusters", type=int, default=100, help="Number of prototypes")
 parser.add_argument("--tau_ema", type=float, default=0.98, help="EMA between RL and CTRL encoders")
 parser.add_argument("--lr_ctrl", type=float, default=1e-4, help="CTRL's learning rate")
+
+parser.add_argument("--run_id", type=str, default="pytorch_daac",
+                   help= "Run ID. Change that to change W&B name")
+parser.add_argument("--wandb_mode", type=str, default="disabled",
+                   help= "W&B logging (disabled, online, offline)")
+parser.add_argument("--wandb_entity", type=str, default="ssl_rl",
+                    help="W&B entity (username or team name)")
+parser.add_argument("--wandb_project", type=str, default= "pytorch_ctrl",help= "W&B project name")
