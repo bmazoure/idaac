@@ -253,6 +253,14 @@ def train(args):
             logger.dumpkvs()
 
 
+            wandb.log({
+                "%s/ep_return_200" % (args.env_name):np.mean(episode_rewards)
+            },step=total_num_steps)
+
+            wandb.log({
+                "%s/ep_return_all" % (args.env_name):np.mean(eval_episode_rewards)
+            },step=total_num_steps)
+
 if __name__ == "__main__":
     args = parser.parse_args()
     train(args)
