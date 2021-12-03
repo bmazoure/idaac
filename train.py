@@ -25,7 +25,6 @@ from ppo_daac_idaac.envs import VecPyTorchProcgen
 
 
 def train(args):
-    os.environ["WANDB_API_KEY"] = "02e3820b69de1b1fcc645edcfc3dd5c5079839a1"
     group_name = "%s_%s_%s" % (args.algo, args.env_name, args.run_id)
     name = "%s_%s_%s_%d" % (args.algo, args.env_name, args.run_id,
                             np.random.randint(100000000))
