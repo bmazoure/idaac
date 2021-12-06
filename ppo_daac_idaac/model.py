@@ -354,7 +354,6 @@ class IDAACnet(nn.Module):
             base_kwargs = {}
         
         base = PolicyResNetBase
-        
         self.base = base(obs_shape[0], **base_kwargs)
         self.value_net = ValueResNet(obs_shape[0], **base_kwargs)
         self.dist = Categorical(self.base.output_size, num_actions)

@@ -53,15 +53,10 @@ def train(args):
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
-    log_dir = os.path.expanduser(args.log_dir)
-    utils.cleanup_log_dir(log_dir)
 
     torch.set_num_threads(1)
     device = torch.device("cuda:0" if args.cuda else "cpu")
 
-    log_file = '-{}-{}-s{}'.format(args.env_name, args.algo, args.seed)
-    logger.configure(dir=args.log_dir, format_strs=['csv', 'stdout'], log_suffix=log_file)
-    print("\nLog File: ", log_file)
 
     venv = ProcgenEnv(num_envs=args.num_processes, env_name=args.env_name, \
         num_levels=args.num_levels, start_level=args.start_level, \
@@ -155,7 +150,7 @@ def train(args):
             lr=args.lr,
             eps=args.eps,
             max_grad_norm=args.max_grad_norm)
-
+    
     obs = envs.reset()
     rollouts.obs[0].copy_(obs)
     rollouts.to(device)
@@ -240,17 +235,7 @@ def train(args):
                 .format(len(episode_rewards), np.mean(episode_rewards),
                         np.median(episode_rewards)))
 
-            # Log training stats
-            logger.logkv("train/total_num_steps", total_num_steps)            
-            logger.logkv("train/mean_episode_reward", np.mean(episode_rewards))
-            logger.logkv("train/median_episode_reward", np.median(episode_rewards))
-
-            # Log eval stats (on the full distribution of levels) 
             eval_episode_rewards = evaluate(args, actor_critic, device)
-            logger.logkv("test/mean_episode_reward", np.mean(eval_episode_rewards))
-            logger.logkv("test/median_episode_reward", np.median(eval_episode_rewards))
-
-            logger.dumpkvs()
 
 
             wandb.log({
