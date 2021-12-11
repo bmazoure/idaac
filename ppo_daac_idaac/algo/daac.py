@@ -107,16 +107,15 @@ class DAAC():
                         self.ctrl.protos.weight.data.copy_(C)
 
                         v_clust = F.normalize(v_clust, dim=1, p=2)
-                        w_clust = F.normalize(v_clust, dim=1, p=2)
+                        w_clust = v_clust # F.normalize(w_clust, dim=1, p=2)
 
                         scores_v = self.ctrl.protos(v_clust)
                         log_p = F.log_softmax(scores_v / self.ctrl.temp, dim=1)
 
                         scores_v_target = self.ctrl.protos(v_clust)
                         scores_w_target = self.ctrl.protos(w_clust)
-                        with torch.no_grad():
-                            q_target = self.ctrl.sinkhorn(scores_w_target)
-                        proto_loss = -(q_target * log_p).sum(axis=1).mean()
+                        q_target = self.ctrl.sinkhorn(scores_w_target)
+                        proto_loss = -(q_target.detach() * log_p).sum(axis=1).mean()
 
                         # MYOW
                         dist = compute_distance(self.ctrl.protos.weight.data.clone().T)
@@ -142,6 +141,7 @@ class DAAC():
                             myow_loss += cos_loss(v_pred, nearby_vec).mean()
 
                         ctrl_loss = proto_loss + myow_loss
+                        print(proto_loss, myow_loss, ctrl_loss)
 
                         self.ctrl_optimizer.zero_grad()
                         ctrl_loss.backward()

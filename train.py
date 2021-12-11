@@ -221,10 +221,10 @@ def train(args):
             except OSError:
                 pass
 
-            torch.save([
-                actor_critic,
-                getattr(envs, 'ob_rms', None)
-            ], os.path.join(args.save_dir, "agent{}.pt".format(log_file))) 
+            # torch.save([
+            #     actor_critic,
+            #     getattr(envs, 'ob_rms', None)
+            # ], os.path.join(args.save_dir, "agent{}.pt".format(log_file))) 
 
         # Save Logs
         total_num_steps = (j + 1) * args.num_processes * args.num_steps
