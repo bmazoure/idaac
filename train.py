@@ -78,7 +78,7 @@ def train(args):
             envs.action_space.n,
             base_kwargs={'hidden_size': args.hidden_size})
     if 'ctrl' in args.algo:
-        ctrl = CTRL(dims=[256,256,256], cluster_len=args.cluster_len, num_protos=args.num_clusters, k=args.k, temp=args.temp)
+        ctrl = CTRL(dims=[256, 256], cluster_len=args.cluster_len, num_protos=args.num_clusters, k=args.k, temp=args.temp)
         ctrl.to(device)
     else:
         ctrl = None

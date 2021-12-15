@@ -432,10 +432,10 @@ class CTRL(nn.Module):
         z = ((1 + gamma_a) * z_state + beta_a).permute(1,0,2).reshape(z_state.shape[1], -1)
         z = self.concat_mlp(z)
 
-        v_clust = self.v_clust_mlp(z)
-        w_clust = v_clust # self.w_clust_mlp(v_clust)
+        v_clust = z # self.v_clust_mlp(z)
+        w_clust = self.w_clust_mlp(v_clust)
 
-        v_pred = self.v_pred_mlp(z)
+        v_pred = z # self.v_pred_mlp(z)
         w_pred = self.w_pred_mlp(v_pred)
 
         return v_clust, w_clust, v_pred, w_pred

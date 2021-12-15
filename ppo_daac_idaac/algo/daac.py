@@ -102,12 +102,12 @@ class DAAC():
                         # z: cluster_len x ((n_timesteps-cluster_len) * n_processes) x n_rkhs
                         z_seq = self.actor_critic.base(obs_seq.reshape(-1,*obs_batch.size()[1:]))[1].reshape(*obs_seq.size()[:2], -1)
                         v_clust, w_clust, v_pred, w_pred = self.ctrl(z_seq, actions_seq, returns_seq)
-                        C = self.ctrl.protos.weight.data.clone()
-                        C = F.normalize(C, dim=1, p=2)
-                        self.ctrl.protos.weight.data.copy_(C)
+                        # C = self.ctrl.protos.weight.data.clone()
+                        # C = F.normalize(C, dim=1, p=2)
+                        # self.ctrl.protos.weight.data.copy_(C)
 
-                        v_clust = F.normalize(v_clust, dim=1, p=2)
-                        w_clust = v_clust # F.normalize(w_clust, dim=1, p=2)
+                        # v_clust = F.normalize(v_clust, dim=1, p=2)
+                        # w_clust = F.normalize(w_clust, dim=1, p=2)
 
                         scores_v = self.ctrl.protos(v_clust)
                         log_p = F.log_softmax(scores_v / self.ctrl.temp, dim=1)
