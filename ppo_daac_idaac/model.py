@@ -447,18 +447,18 @@ class CTRL(nn.Module):
             return x
 
         Q = scores / self.temp
-        Q -= Q.max()
+        Q = Q - Q.max()
 
         Q = torch.exp(Q).T
-        Q = remove_infs(Q)
-        Q /= Q.sum()
+        # Q = remove_infs(Q)
+        Q = Q / Q.sum()
 
         r = torch.ones(Q.shape[0], device=Q.device) / Q.shape[0]
         c = torch.ones(Q.shape[1], device=Q.device) / Q.shape[1]
         for it in range(self.num_iters):
-            u = Q.sum(dim=1)
-            u = remove_infs(r / u)
-            Q *= u.unsqueeze(dim=1)
-            Q *= (c / Q.sum(dim=0)).unsqueeze(dim=0)
+            u = Q.sum(dim=1).unsqueeze(dim=1)
+            # u = remove_infs(r / u)
+            Q = Q * u
+            Q = Q * (c / Q.sum(dim=0)).unsqueeze(dim=0)
         Q = Q / Q.sum(dim=0, keepdim=True)
         return Q.T

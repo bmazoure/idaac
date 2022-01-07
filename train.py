@@ -25,6 +25,7 @@ from ppo_daac_idaac.envs import VecPyTorchProcgen
 
 
 def train(args):
+    torch.autograd.set_detect_anomaly(True)
     group_name = "%s_%s_%s" % (args.algo, args.env_name, args.run_id)
     name = "%s_%s_%s_%d" % (args.algo, args.env_name, args.run_id,
                             np.random.randint(100000000))

@@ -115,7 +115,7 @@ class DAAC():
                         scores_v_target = self.ctrl.protos(v_clust)
                         scores_w_target = self.ctrl.protos(w_clust)
                         q_target = self.ctrl.sinkhorn(scores_w_target)
-                        proto_loss = -(q_target.detach() * log_p).sum(axis=1).mean()
+                        proto_loss = -(q_target * log_p).sum(axis=1).mean()
 
                         # MYOW
                         dist = compute_distance(self.ctrl.protos.weight.data.clone().T)
