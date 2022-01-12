@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import gc
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -93,14 +94,12 @@ class DAAC():
             ctrl_loss_epoch = 0
             for e in range(self.ppo_epoch):
                     data_generator = rollouts.feed_forward_generator(
-                        advantages, 32)
-
-                    for sample in data_generator:
-                        obs_batch, actions_batch, value_preds_batch, return_batch, \
-                            old_action_log_probs_batch, adv_targ, adv_preds_batch,  obs_seq, actions_seq, returns_seq = \
-                            sample
+                        advantages, 8, ctrl=True)
+                    
+                    for i,sample in enumerate(data_generator):
+                        obs_seq, actions_seq, returns_seq = sample
                         # z: cluster_len x ((n_timesteps-cluster_len) * n_processes) x n_rkhs
-                        z_seq = self.actor_critic.base(obs_seq.reshape(-1,*obs_batch.size()[1:]))[1].reshape(*obs_seq.size()[:2], -1)
+                        z_seq = self.actor_critic.base(obs_seq.reshape(-1,*obs_seq.size()[2:]))[1].reshape(*obs_seq.size()[:2], -1)
                         v_clust, w_clust, v_pred, w_pred = self.ctrl(z_seq, actions_seq, returns_seq)
                         # C = self.ctrl.protos.weight.data.clone()
                         # C = F.normalize(C, dim=1, p=2)
@@ -156,15 +155,17 @@ class DAAC():
         adv_loss_epoch = 0
         action_loss_epoch = 0
         dist_entropy_epoch = 0
+        del data_generator
+        gc.collect()
+        torch.cuda.empty_cache()
         for e in range(self.ppo_epoch):
             data_generator = rollouts.feed_forward_generator(
-                advantages, self.num_mini_batch)
-
+                advantages, self.num_mini_batch, ctrl=False)
+            
             for sample in data_generator:
                 obs_batch, actions_batch, value_preds_batch, return_batch, \
-                    old_action_log_probs_batch, adv_targ, adv_preds_batch, obs_seq, actions_seq, returns_seq = \
+                    old_action_log_probs_batch, adv_targ, adv_preds_batch = \
                     sample
-
                 _, adv, _, action_log_probs, dist_entropy = \
                     self.actor_critic.evaluate_actions(obs_batch, actions_batch)
                     
@@ -195,19 +196,21 @@ class DAAC():
         adv_loss_epoch /= num_policy_updates
         action_loss_epoch /= num_policy_updates
         dist_entropy_epoch /= num_policy_updates
-
+        del data_generator
+        gc.collect()
+        torch.cuda.empty_cache()
         # Update the Value Netowrk
         if self.num_policy_updates % self.value_freq == 0:
             value_loss_epoch = 0
             for e in range(self.value_epoch):
                 data_generator = rollouts.feed_forward_generator(
-                    advantages, self.num_mini_batch)
+                    advantages, self.num_mini_batch, ctrl=False)
 
-                for sample in data_generator:
+                for i, sample in enumerate(data_generator):
                     obs_batch, actions_batch, value_preds_batch, return_batch, \
-                        old_action_log_probs_batch, adv_targ, adv_preds_batch, obs_seq, actions_seq, returns_seq = \
+                        old_action_log_probs_batch, adv_targ, adv_preds_batch = \
                         sample
-                    
+
                     _, _, values, _, _ = self.actor_critic.evaluate_actions(
                         obs_batch, actions_batch)                            
 
@@ -224,7 +227,8 @@ class DAAC():
                     value_loss.backward()
                     nn.utils.clip_grad_norm_(self.value_parameters, \
                                              self.max_grad_norm)
-                    self.value_optimizer.step()  
+                    self.value_optimizer.step()
+                    self.value_optimizer.zero_grad()
                                     
                     value_loss_epoch += value_loss.item()
 

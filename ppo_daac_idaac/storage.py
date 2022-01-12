@@ -109,7 +109,7 @@ def rolling_window(x, w):
 class DAACRolloutStorage(RolloutStorage):
     def __init__(self, num_steps, num_processes, obs_shape, action_space, cluster_len):
         self.cluster_len = cluster_len
-        self.obs = torch.zeros(num_steps + 1, num_processes, *obs_shape)
+        self.obs = torch.zeros(num_steps + 1, num_processes, *obs_shape, dtype=torch.uint8)
         self.rewards = torch.zeros(num_steps, num_processes, 1)
         self.value_preds = torch.zeros(num_steps + 1, num_processes, 1)
         self.adv_preds = torch.zeros(num_steps + 1, num_processes, 1)
@@ -152,7 +152,8 @@ class DAACRolloutStorage(RolloutStorage):
     def feed_forward_generator(self,
                                advantages,
                                num_mini_batch=None,
-                               mini_batch_size=None):
+                               mini_batch_size=None,
+                               ctrl=False):
         num_steps, num_processes = self.rewards.size()[0:2]
         batch_size = num_processes * num_steps
         batch_size_seq = num_processes * (num_steps-self.cluster_len)
@@ -166,30 +167,36 @@ class DAACRolloutStorage(RolloutStorage):
                           num_mini_batch))
             mini_batch_size = batch_size // num_mini_batch
 
-        sampler = BatchSampler(
-            SubsetRandomSampler(range(batch_size_seq)),
-            mini_batch_size,
-            drop_last=True)
-        for indices in sampler:
-            obs_batch = self.obs[:-1].view(-1, *self.obs.size()[2:])[indices]
-            actions_batch = self.actions.view(-1,
-                                            self.actions.size(-1))[indices]
-            value_preds_batch = self.value_preds[:-1].view(-1, 1)[indices]
-            adv_preds_batch = self.adv_preds[:-1].view(-1, 1)[indices]
-            return_batch = self.returns[:-1].view(-1, 1)[indices]
-            old_action_log_probs_batch = self.action_log_probs.view(-1,
-                                                                    1)[indices]
-            if advantages is None:
-                adv_targ = None
-            else:
-                adv_targ = advantages.view(-1, 1)[indices]
-            
-            obs_seq = rolling_window(self.obs[:-1], self.cluster_len).permute(1,0,2,3,4,5).reshape(self.cluster_len ,-1, *self.obs.size()[2:])[:,indices]
-            actions_seq = rolling_window(self.actions, self.cluster_len).permute(1,0,2,3).reshape(self.cluster_len ,-1, self.actions.size(-1))[:,indices]
-            returns_seq = rolling_window(self.returns, self.cluster_len).permute(1,0,2,3).reshape(self.cluster_len ,-1, self.returns.size(-1))[:,indices]
-
-            yield obs_batch, actions_batch, value_preds_batch, return_batch, \
-                old_action_log_probs_batch, adv_targ, adv_preds_batch, obs_seq, actions_seq, returns_seq
+        if ctrl:
+            n_envs = 4 # Number of envs to sample from every batch
+            for i in range(num_mini_batch):
+                env_indices = torch.randint(0,self.obs.size()[1],size=(n_envs,))
+                # batch_indices = torch.randint(0,self.obs.size()[1],size=(n_envs,))
+                obs_seq = rolling_window(self.obs[:-1, env_indices], self.cluster_len).permute(1,0,2,3,4,5).reshape(self.cluster_len ,-1, *self.obs.size()[2:])
+                actions_seq = rolling_window(self.actions[:, env_indices], self.cluster_len).permute(1,0,2,3).reshape(self.cluster_len ,-1, self.actions.size(-1))
+                returns_seq = rolling_window(self.returns[:-1, env_indices], self.cluster_len).permute(1,0,2,3).reshape(self.cluster_len ,-1, self.returns.size(-1))
+                yield  obs_seq, actions_seq, returns_seq
+        else:
+            sampler = BatchSampler(
+                SubsetRandomSampler(range(batch_size_seq)),
+                mini_batch_size,
+                drop_last=True)
+            for indices in sampler:
+                obs_batch = self.obs[:-1].view(-1, *self.obs.size()[2:])[indices]
+                actions_batch = self.actions.view(-1,
+                                                self.actions.size(-1))[indices]
+                value_preds_batch = self.value_preds[:-1].view(-1, 1)[indices]
+                adv_preds_batch = self.adv_preds[:-1].view(-1, 1)[indices]
+                return_batch = self.returns[:-1].view(-1, 1)[indices]
+                old_action_log_probs_batch = self.action_log_probs.view(-1,
+                                                                        1)[indices]
+                if advantages is None:
+                    adv_targ = None
+                else:
+                    adv_targ = advantages.view(-1, 1)[indices]
+                
+                yield obs_batch, actions_batch, value_preds_batch, return_batch, \
+                    old_action_log_probs_batch, adv_targ, adv_preds_batch
 
 
 class IDAACRolloutStorage(RolloutStorage):

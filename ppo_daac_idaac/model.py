@@ -205,7 +205,7 @@ class PolicyResNetBase(NNBase):
         return nn.Sequential(*layers)
 
     def forward(self, inputs, actions=None):
-        x = inputs
+        x = inputs.float() / 255.
 
         x = self.layer1(x)
         x = self.layer2(x)
@@ -255,7 +255,7 @@ class ValueResNet(NNBase):
         return nn.Sequential(*layers)
 
     def forward(self, inputs):
-        x = inputs
+        x = inputs.float() / 255.
 
         x = self.layer1(x)
         x = self.layer2(x)

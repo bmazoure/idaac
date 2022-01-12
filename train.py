@@ -8,20 +8,13 @@ import hyperparams as hps
 from test import evaluate
 from procgen import ProcgenEnv
 
-from baselines import logger
-from baselines.common.vec_env import (
-    VecExtractDictObs,
-    VecMonitor,
-    VecNormalize
-)
-
 from ppo_daac_idaac import algo, utils
 from ppo_daac_idaac.arguments import parser
 from ppo_daac_idaac.model import PPOnet, IDAACnet, \
     LinearOrderClassifier, NonlinearOrderClassifier, CTRL
 from ppo_daac_idaac.storage import DAACRolloutStorage, \
     IDAACRolloutStorage, RolloutStorage
-from ppo_daac_idaac.envs import VecPyTorchProcgen
+from ppo_daac_idaac.envs import VecPyTorchProcgen, ProcgenVecEnvCustom
 
 
 def train(args):
@@ -55,17 +48,13 @@ def train(args):
     torch.cuda.manual_seed_all(args.seed)
 
 
-    torch.set_num_threads(1)
+    # torch.set_num_threads(1)
     device = torch.device("cuda:0" if args.cuda else "cpu")
 
-
-    venv = ProcgenEnv(num_envs=args.num_processes, env_name=args.env_name, \
+    envs = ProcgenVecEnvCustom(num_envs=args.num_processes, env_name=args.env_name, \
         num_levels=args.num_levels, start_level=args.start_level, \
-        distribution_mode=args.distribution_mode)
-    venv = VecExtractDictObs(venv, "rgb")
-    venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
-    venv = VecNormalize(venv=venv, ob=False)
-    envs = VecPyTorchProcgen(venv, device)
+        mode=args.distribution_mode, device=device)
+    # envs = VecPyTorchProcgen(venv, device)
 
     obs_shape = envs.observation_space.shape     
     if 'ppo' in args.algo:
@@ -104,7 +93,7 @@ def train(args):
     else:
         rollouts = RolloutStorage(args.num_steps, args.num_processes,
                                 envs.observation_space.shape, envs.action_space)
-
+    
     batch_size = int(args.num_processes * args.num_steps / args.num_mini_batch)
 
     if 'idaac' in args.algo:
@@ -162,6 +151,7 @@ def train(args):
 
     returns_ood_acc = []
     nsteps = torch.zeros(args.num_processes)
+    
     for j in range(num_updates):
         actor_critic.train()
 

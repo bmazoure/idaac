@@ -2,25 +2,17 @@ import numpy as np
 import torch
 
 from procgen import ProcgenEnv
-from baselines.common.vec_env import (
-    VecExtractDictObs,
-    VecMonitor,
-    VecNormalize
-)
 
-from ppo_daac_idaac.envs import VecPyTorchProcgen
+from ppo_daac_idaac.envs import VecPyTorchProcgen, ProcgenVecEnvCustom
 
 
 def evaluate(args, actor_critic, device):
     actor_critic.eval()
 
     # Sample Levels From the Full Distribution 
-    venv = ProcgenEnv(num_envs=1, env_name=args.env_name, \
-        num_levels=0, start_level=0, distribution_mode=args.distribution_mode)
-    venv = VecExtractDictObs(venv, "rgb")
-    venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
-    venv = VecNormalize(venv=venv, ob=False)
-    eval_envs = VecPyTorchProcgen(venv, device)
+    eval_envs = ProcgenVecEnvCustom(num_envs=1, env_name=args.env_name, \
+        num_levels=0, start_level=0, mode=args.distribution_mode, device=device)
+    # eval_envs = VecPyTorchProcgen(venv, device)
 
     eval_episode_rewards = []
     obs = eval_envs.reset()
