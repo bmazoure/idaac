@@ -16,6 +16,9 @@ init_relu_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
 
 EPS = 1e-5
 
+MIN = EPS
+MAX = 1e4
+
 def apply_init_(modules):
     """
     Initialize NN modules
@@ -443,22 +446,23 @@ class CTRL(nn.Module):
 
     def sinkhorn(self, scores):
         def remove_infs(x):
-            m = x[torch.isfinite(x)].max().item()
-            x[torch.isinf(x)] = m
+            x = torch.clamp(x, MIN, MAX)
+            # m = x[torch.isfinite(x)].max().item()
+            # x[torch.isinf(x)] = m
             return x
 
         Q = scores / self.temp
         Q = Q - Q.max()
 
         Q = torch.exp(Q).T
-        Q = Q
+        Q = remove_infs(Q)
         Q = Q / Q.sum()
 
         r = torch.ones(Q.shape[0], device=Q.device) / Q.shape[0]
         c = torch.ones(Q.shape[1], device=Q.device) / Q.shape[1]
         for it in range(self.num_iters):
-            u = Q.sum(dim=1)
-            u = (r / u)
+            u = remove_infs( Q.sum(dim=1) )
+            u = remove_infs(r / u)
             Q = Q * u.unsqueeze(dim=1)
             Q = Q * (c / Q.sum(dim=0)).unsqueeze(dim=0)
         Q = Q / Q.sum(dim=0, keepdim=True)

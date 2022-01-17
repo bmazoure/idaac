@@ -48,7 +48,7 @@ def train(args):
     torch.cuda.manual_seed_all(args.seed)
 
 
-    # torch.set_num_threads(1)
+    torch.set_num_threads(1)
     device = torch.device("cuda:0" if args.cuda else "cpu")
 
     envs = ProcgenVecEnvCustom(num_envs=args.num_processes, env_name=args.env_name, \
@@ -200,7 +200,7 @@ def train(args):
             order_acc, order_loss, clf_loss, adv_loss, value_loss, \
                 action_loss, dist_entropy = agent.update(rollouts)    
         elif 'daac' in args.algo:
-            adv_loss, value_loss, action_loss, dist_entropy, ctrl_loss = agent.update(rollouts)    
+            adv_loss, value_loss, action_loss, dist_entropy, ctrl_loss = agent.update(rollouts, j)    
         else:
             value_loss, action_loss, dist_entropy = agent.update(rollouts)    
         rollouts.after_update()
@@ -225,8 +225,8 @@ def train(args):
             print("Last {} training episodes, mean/median reward {:.2f}/{:.2f}"\
                 .format(len(episode_rewards), np.mean(episode_rewards),
                         np.median(episode_rewards)))
-
-            eval_episode_rewards = evaluate(args, actor_critic, device)
+            eval_device = 'cuda'
+            eval_episode_rewards = evaluate(args, actor_critic, eval_device)
 
 
             wandb.log({

@@ -178,7 +178,7 @@ class DAACRolloutStorage(RolloutStorage):
                 yield  obs_seq, actions_seq, returns_seq
         else:
             sampler = BatchSampler(
-                SubsetRandomSampler(range(batch_size_seq)),
+                SubsetRandomSampler(range(batch_size)),
                 mini_batch_size,
                 drop_last=True)
             for indices in sampler:
